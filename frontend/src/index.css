@@ -1,0 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---- Neutral token ramps (light = Stitch export, dark = cohesive M3 dark) ---- */
+:root {
+  --c-background: 248 249 255;
+  --c-surface: 248 249 255;
+  --c-surface-bright: 248 249 255;
+  --c-surface-dim: 203 219 245;
+  --c-sc-lowest: 255 255 255;
+  --c-sc-low: 239 244 255;
+  --c-sc: 229 238 255;
+  --c-sc-high: 220 233 255;
+  --c-sc-highest: 211 228 254;
+  --c-surface-variant: 211 228 254;
+  --c-on-surface: 11 28 48;
+  --c-on-surface-variant: 61 73 71;
+  --c-on-background: 11 28 48;
+  --c-outline: 109 122 119;
+  --c-outline-variant: 188 201 198;
+  --c-inverse-surface: 33 49 69;
+  --c-inverse-on-surface: 234 241 255;
+  --c-surface-tint: 0 106 97;
+}
+
+.dark {
+  --c-background: 8 18 27;
+  --c-surface: 12 22 31;
+  --c-surface-bright: 40 51 61;
+  --c-surface-dim: 8 18 27;
+  --c-sc-lowest: 6 14 22;
+  --c-sc-low: 19 30 40;
+  --c-sc: 23 34 44;
+  --c-sc-high: 33 44 55;
+  --c-sc-highest: 44 55 66;
+  --c-surface-variant: 45 55 66;
+  --c-on-surface: 219 228 238;
+  --c-on-surface-variant: 188 201 198;
+  --c-on-background: 219 228 238;
+  --c-outline: 135 147 143;
+  --c-outline-variant: 61 73 71;
+  --c-inverse-surface: 219 228 238;
+  --c-inverse-on-surface: 11 28 48;
+  --c-surface-tint: 107 216 203;
+}
+
+html, body { margin: 0; padding: 0; }
+body { overscroll-behavior: none; }
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+
+/* Material Symbols base */
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  vertical-align: middle;
+}
+.ms-fill { font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+
+/* hide scrollbars like the Stitch export */
+::-webkit-scrollbar { display: none; }
+* { scrollbar-width: none; }
+
+@keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.fade-up { animation: fadeUp .45s ease both; }
+
+/* Leaflet overrides */
+.leaflet-container { background: rgb(var(--c-surface-dim)); font-family: inherit; }
+.leaflet-div-icon { background: transparent; border: none; }
+.leaflet-control-attribution { font-size: 10px; background: rgba(255,255,255,.7); }
+.dark .leaflet-tile { filter: brightness(0.85) contrast(1.05) saturate(0.9); }
+.heat-blob { filter: blur(16px); }
+@keyframes ping { 75%, 100% { transform: scale(2); opacity: 0; } }
+
+/* City AQI marquee ticker (CPCB CCR style) */
+@keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+.ticker-track { animation: marquee 48s linear infinite; will-change: transform; }
+.ticker-mask:hover .ticker-track { animation-play-state: paused; }
