@@ -1,13 +1,14 @@
 import { useState, useMemo, useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
+import { MapContainer } from 'react-leaflet'
+import 'leaflet/dist/leaflet.css'
 import Icon from '../components/Icon'
+import MapTiles from '../components/MapTiles'
 import { useApp } from '../context/AppContext'
 import { t } from '../i18n'
 import { answer } from '../utils/assistant'
 import { api } from '../api'
 import { useCurrent, useLocations } from '../useLive'
-
-const MAP_BG = "url('https://lh3.googleusercontent.com/aida-public/AB6AXuDDnPpAwxOxF0vihgRTiRHn9i_ikNy8VdKpQUMwd2HUluxvLOJ90c84qpINYqDesQDjdvdIU9MZRC_7ZTdAVm8Ga667HFOml1LzUzRUyZUH21EplyV6Cyyqq3EtjguM58IuIIija-uWIXZuLLM4ps5yF1ADowOzPQJh2s7hwfY89VJc3ET-Qev2PC1nTubdmIjLn3ve5jRQnlhiEEH2gRZaWiCuCCnokpGdSUp7THaSbGVHl_NZ6Wh2')"
 
 // Delhi-NCR areas with live AQI (search source for the hero) — comprehensive coverage
 const AREAS = [
@@ -205,8 +206,12 @@ export default function Home() {
           </div>
 
           <div className="relative w-full h-[400px] lg:h-full min-h-[380px] bg-surface-container rounded-lg overflow-hidden flex items-center justify-center shadow-inner">
-            <div className="absolute inset-0 w-full h-full bg-cover bg-center opacity-40 mix-blend-multiply" style={{ backgroundImage: MAP_BG }}></div>
-            <div className="absolute inset-0 pointer-events-none">
+            <MapContainer center={[28.63, 77.22]} zoom={11} zoomControl={false} attributionControl={false}
+              dragging={false} touchZoom={false} scrollWheelZoom={false} doubleClickZoom={false} keyboard={false}
+              style={{ width: '100%', height: '100%', position: 'absolute', inset: 0, zIndex: 0 }}>
+              <MapTiles />
+            </MapContainer>
+            <div className="absolute inset-0 pointer-events-none z-10">
               {mapView === 'aqi' && (<>
                 <div className="absolute top-1/4 right-1/4 w-48 h-48 rounded-full bg-error/15 blur-3xl animate-pulse"></div>
                 <div className="absolute bottom-1/3 left-1/3 w-64 h-64 rounded-full bg-secondary/15 blur-3xl"></div>
@@ -379,26 +384,17 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Trust strip */}
-      <div className="w-full bg-surface-container-low rounded-xl p-space-md">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-space-md text-center">
-          <Trust icon="verified" cls="text-primary" title={T('CPCB & DPCC Verified')} sub="Calibrated with CAAQMS reference monitors" />
-          <Trust icon="shield_with_heart" cls="text-secondary" title={T('AIIMS Clinical Advisory')} sub="Guidelines reviewed by pulmonologists" />
-          <Trust icon="radar" cls="text-primary-container" title={T('Hyper-Local Spatial Grid')} sub="100m² microclimate resolution" />
-          <Trust icon="update" cls="text-tertiary" title={T('Continuous 15m Sync')} sub="Real-time open telemetry data feeds" />
-        </div>
-      </div>
     </div>
   )
 }
 
-// National city AQI for the live ticker (representative CPCB-style values)
+// Delhi-NCR AQI for the live ticker (representative CPCB-style values)
 const CITIES = [
-  ['Delhi', 284], ['Ghaziabad', 305], ['Noida', 259], ['Gurugram', 246], ['Faridabad', 273],
-  ['Lucknow', 238], ['Kanpur', 276], ['Patna', 261], ['Varanasi', 224], ['Jaipur', 189],
-  ['Chandigarh', 142], ['Amritsar', 198], ['Mumbai', 132], ['Pune', 121], ['Ahmedabad', 156],
-  ['Kolkata', 168], ['Chennai', 96], ['Bengaluru', 88], ['Hyderabad', 114], ['Bhopal', 134],
-  ['Indore', 126], ['Nagpur', 108], ['Kochi', 74], ['Guwahati', 152],
+  ['Delhi', 284], ['Noida', 259], ['Gurugram', 246], ['Faridabad', 273], ['Ghaziabad', 305],
+  ['Greater Noida', 238], ['Sonipat', 266], ['Rohini', 262], ['Dwarka', 226], ['Anand Vihar', 284],
+  ['Jahangirpuri', 318], ['Wazirpur', 305], ['Bawana', 322], ['Narela', 300], ['ITO', 274],
+  ['Lodhi Road', 142], ['R.K. Puram', 231], ['Loni', 328], ['Indirapuram', 279], ['Vasundhara', 287],
+  ['Bahadurgarh', 289], ['Manesar', 232], ['Ballabhgarh', 262],
 ]
 
 function CityTicker() {
@@ -466,6 +462,22 @@ function AqiTempForecast({ aqi, lang, areaName }) {
       return f ? { ...p, a: f.aqi } : p
     })
   }, [localHourly, live])
+  const days = useMemo(() => {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    const today = new Date()
+    const start = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
+    const grouped = []
+    hourly.forEach((p) => {
+      const dayStart = new Date(p.dt.getFullYear(), p.dt.getMonth(), p.dt.getDate()).getTime()
+      const diff = Math.round((dayStart - start) / 86400000)
+      const prefix = diff === 0 ? 'Today' : diff === 1 ? T('Tomorrow') : wd[p.dt.getDay()]
+      const label = `${prefix}, ${p.dt.getDate()} ${months[p.dt.getMonth()]}`
+      const last = grouped[grouped.length - 1]
+      if (!last || last.key !== dayStart) grouped.push({ key: dayStart, label, hours: [p] })
+      else last.hours.push(p)
+    })
+    return grouped
+  }, [hourly])
 
   return (
     <div className="bg-surface-container-low rounded-lg p-space-md">
@@ -476,20 +488,30 @@ function AqiTempForecast({ aqi, lang, areaName }) {
         </div>
         <span className="font-label-sm text-label-sm text-outline shrink-0">{T('Next 72 hours')}</span>
       </div>
-      <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollSnapType: 'x proximity' }}>
-        {hourly.map((p, i) => {
-          const b = band(p.a); const tone = b.dot.replace('bg-', 'text-')
-          const hr = (p.hod % 12) || 12; const ap = p.hod < 12 ? 'AM' : 'PM'
-          const label = i === 0 ? T('Now') : p.hod === 0 ? wd[p.dt.getDay()] : `${hr} ${ap}`
-          return (
-            <div key={i} className={`flex flex-col items-center gap-1 shrink-0 w-[52px] py-2 rounded-xl ${i === 0 ? 'bg-primary/10 ring-1 ring-primary/30' : p.hod === 0 ? 'bg-surface-container-high' : ''}`} style={{ scrollSnapAlign: 'start' }}>
-              <span className={`text-[0.6rem] font-semibold ${p.hod === 0 && i !== 0 ? 'text-primary' : 'text-on-surface-variant'}`}>{label}</span>
-              <span className={`text-[0.85rem] font-extrabold leading-none mt-0.5 ${tone}`}>{p.a}</span>
-              <span className="text-[0.5rem] text-outline uppercase tracking-wide">AQI</span>
-              <span className="text-[0.68rem] font-bold text-on-surface mt-0.5">{p.tp}°</span>
+      <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollSnapType: 'x proximity' }}>
+        {days.map((day, dayIdx) => (
+          <div key={day.key} className="flex flex-col gap-1.5 shrink-0">
+            <div className="sticky left-1 z-10 w-fit px-2 py-0.5 rounded-full bg-surface-container-lowest/95 backdrop-blur text-[0.62rem] font-bold text-primary shadow-sm">
+              {day.label}
             </div>
-          )
-        })}
+            <div className="flex gap-1.5">
+              {day.hours.map((p, idx) => {
+                const i = hourly.indexOf(p)
+                const b = band(p.a); const tone = b.dot.replace('bg-', 'text-')
+                const hr = (p.hod % 12) || 12; const ap = p.hod < 12 ? 'AM' : 'PM'
+                const label = i === 0 ? T('Now') : `${hr} ${ap}`
+                return (
+                  <div key={`${day.key}-${idx}`} className={`flex flex-col items-center gap-1 shrink-0 w-[52px] py-2 rounded-xl ${i === 0 ? 'bg-primary/10 ring-1 ring-primary/30' : p.hod === 0 || (dayIdx > 0 && idx === 0) ? 'bg-surface-container-high' : ''}`} style={{ scrollSnapAlign: 'start' }}>
+                    <span className={`text-[0.6rem] font-semibold ${p.hod === 0 && i !== 0 ? 'text-primary' : 'text-on-surface-variant'}`}>{label}</span>
+                    <span className={`text-[0.85rem] font-extrabold leading-none mt-0.5 ${tone}`}>{p.a}</span>
+                    <span className="text-[0.5rem] text-outline uppercase tracking-wide">AQI</span>
+                    <span className="text-[0.68rem] font-bold text-on-surface mt-0.5">{p.tp}°</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Stage 6 — "Why this forecast?" SHAP panel (only shown when the model is live) */}

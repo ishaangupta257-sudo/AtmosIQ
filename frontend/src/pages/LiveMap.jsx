@@ -1,17 +1,18 @@
 import { useState, useRef, useMemo } from 'react'
-import { MapContainer, TileLayer, Marker, Circle } from 'react-leaflet'
+import { MapContainer, Marker, Circle } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import Icon from '../components/Icon'
+import MapTiles from '../components/MapTiles'
 import { useApp } from '../context/AppContext'
 import { t } from '../i18n'
 import { useLocations, useConstruction } from '../useLive'
 
 // Real Delhi-NCR station coordinates. Colour derives from AQI band.
 function aqiColors(aqi) {
-  if (aqi <= 100) return { dot: 'bg-secondary', txt: 'text-secondary' }
-  if (aqi <= 200) return { dot: 'bg-tertiary', txt: 'text-tertiary' }
-  return { dot: 'bg-error', txt: 'text-error' }
+  if (aqi <= 100) return { dot: 'bg-secondary', txt: 'text-secondary', hex: '#4edea3', ink: '#063b2a' }
+  if (aqi <= 200) return { dot: 'bg-tertiary', txt: 'text-tertiary', hex: '#ffb95f', ink: '#3b2500' }
+  return { dot: 'bg-error', txt: 'text-error', hex: '#ff6b65', ink: '#4b0505' }
 }
 const STATIONS = [
   { name: 'Anand Vihar', pos: [28.6469, 77.3152], aqi: 284, selected: true },
@@ -67,20 +68,39 @@ function compass(deg) {
   const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
   return dirs[Math.round(((deg % 360) / 45)) % 8]
 }
+function shortStationName(name) {
+  return name
+    .replace('Sector', 'Sec')
+    .replace('Jahangirpuri', 'Jahangir.')
+    .replace('Connaught Place', 'CP')
+    .replace('Greater Noida', 'Gr. Noida')
+}
 // dusty / construction zones (for the PM10 Surface Dust layer)
 const DUST = [[28.6260, 77.2440], [28.5850, 77.2480], [28.7760, 77.0510], [28.6840, 77.0770], [28.6997, 77.1650]]
 
 function stationIcon(s) {
+  const name = shortStationName(s.name)
+  const nameColor = '#f4f7fb'
+  const shadow = '0 2px 6px rgba(0,0,0,.45)'
+  const labelShadow = '0 1px 3px rgba(0,0,0,.9), 0 0 2px rgba(0,0,0,.9)'
   const html = s.selected
-    ? `<div style="transform:translate(-50%,-50%)"><div class="flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-full bg-surface-container-lowest shadow-xl">
-         <span class="w-3.5 h-3.5 rounded-full bg-error text-on-error flex items-center justify-center" style="font-size:9px;font-weight:700">!</span>
-         <span style="line-height:1.1"><span class="block font-label-sm text-on-surface" style="font-weight:700;font-size:12px">${s.name}</span>
-         <span class="block ${s.txt}" style="font-weight:800;font-size:13px">AQI ${s.aqi}</span></span>
-         <span class="material-symbols-outlined text-primary" style="font-size:16px">check_circle</span></div></div>`
-    : `<div style="transform:translate(-50%,-50%)"><div class="flex items-center gap-1.5 px-2 py-1 rounded-full bg-surface-container-lowest shadow-md" style="white-space:nowrap">
-         <span class="w-2.5 h-2.5 rounded-full ${s.dot}"></span>
-         <span class="text-on-surface" style="font-weight:600;font-size:12px">${s.name}</span>
-         <span class="${s.txt}" style="font-weight:700;font-size:12px">${s.aqi}</span></div></div>`
+    ? `<div title="${s.name} · AQI ${s.aqi}" style="transform:translate(-9px,-50%);position:relative;width:132px;height:48px">
+         <div style="position:absolute;left:0;top:4px;width:18px;height:40px;border-radius:999px;background:#030b13;box-shadow:${shadow};display:flex;align-items:center;justify-content:center">
+           <span style="width:4px;height:22px;border-radius:999px;background:${s.hex};display:block"></span>
+         </div>
+         <div style="position:absolute;left:24px;top:7px;line-height:1.05;white-space:normal;max-width:92px;text-shadow:${labelShadow}">
+           <div style="color:${nameColor};font-weight:900;font-size:13px">${name}</div>
+           <div style="color:${s.hex};font-weight:900;font-size:13px">AQI ${s.aqi}</div>
+         </div>
+         <span class="material-symbols-outlined" style="position:absolute;left:104px;top:18px;font-size:15px;color:#00685f;text-shadow:${labelShadow}">check_circle</span>
+       </div>`
+    : `<div title="${s.name} · AQI ${s.aqi}" style="transform:translate(-8px,-50%);position:relative;width:118px;height:36px">
+         <div style="position:absolute;left:0;top:1px;width:16px;height:34px;border-radius:999px;background:#030b13;box-shadow:${shadow}"></div>
+         <div style="position:absolute;left:21px;top:9px;display:flex;align-items:baseline;gap:5px;max-width:92px;white-space:nowrap;text-shadow:${labelShadow}">
+           <span style="color:${nameColor};font-weight:800;font-size:12px;line-height:1;max-width:68px;overflow:hidden;text-overflow:ellipsis">${name}</span>
+           <span style="color:${s.hex};font-weight:900;font-size:12px;line-height:1">${s.aqi}</span>
+         </div>
+       </div>`
   return L.divIcon({ html, className: '', iconSize: [0, 0] })
 }
 const CONSTRUCTION = [
@@ -88,9 +108,8 @@ const CONSTRUCTION = [
   { name: 'Barapullah Ph-3', pos: [28.5850, 77.2480], icon: 'warning' },
 ]
 function constructionIcon(c) {
-  const html = `<div style="transform:translate(-50%,-50%)"><div class="flex items-center gap-1 px-2 py-1 rounded-lg bg-tertiary-fixed text-on-tertiary-fixed shadow-md" style="white-space:nowrap">
-      <span class="material-symbols-outlined text-tertiary" style="font-size:15px">${c.icon}</span>
-      <span style="font-weight:700;font-size:12px">${c.name}</span></div></div>`
+  const html = `<div title="${c.name}" style="transform:translate(-50%,-50%);width:28px;height:28px;border-radius:999px;background:rgba(42,23,0,.88);border:1px solid rgba(255,185,95,.72);box-shadow:0 4px 14px rgba(0,0,0,.32);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(8px)">
+      <span class="material-symbols-outlined" style="font-size:17px;color:#ffb95f">${c.icon}</span></div>`
   return L.divIcon({ html, className: '', iconSize: [0, 0] })
 }
 
@@ -137,7 +156,7 @@ export default function LiveMap() {
       <div className="absolute inset-0 w-full h-full z-0">
         <MapContainer ref={mapRef} center={[28.63, 77.22]} zoom={11} zoomControl={false} attributionControl
           style={{ width: '100%', height: '100%' }}>
-          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; OpenStreetMap contributors' />
+          <MapTiles />
           {/* PM2.5 heatmap layer */}
           {layers.heatmap && liveStations.map(s => (
             <Circle key={'h' + s.name} center={s.pos} radius={3400} interactive={false}

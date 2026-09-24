@@ -1,5 +1,9 @@
 import { useState } from 'react'
+import { MapContainer, Polyline, CircleMarker, Marker } from 'react-leaflet'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
 import Icon from '../components/Icon'
+import MapTiles from '../components/MapTiles'
 import { useApp } from '../context/AppContext'
 import { t } from '../i18n'
 import HealthProfileModal from '../components/HealthProfileModal'
@@ -9,6 +13,17 @@ function catOf(aqi) {
   if (aqi <= 50) return 'Good'; if (aqi <= 100) return 'Satisfactory'; if (aqi <= 200) return 'Moderate'
   if (aqi <= 300) return 'Poor'; if (aqi <= 400) return 'Very Poor'; return 'Severe'
 }
+const FASTEST_ROUTE = [
+  [28.6330, 77.2190], [28.6289, 77.2410], [28.6278, 77.2790], [28.6469, 77.3152], [28.6270, 77.3640],
+]
+const SAFER_ROUTE = [
+  [28.6330, 77.2190], [28.6139, 77.2295], [28.6040, 77.2580], [28.6090, 77.2900], [28.6270, 77.3640],
+]
+const constructionMarker = L.divIcon({
+  className: '',
+  iconSize: [24, 24],
+  html: '<div style="width:18px;height:18px;background:#ffb95f;border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.28);transform:rotate(45deg);border-radius:3px"></div>',
+})
 
 export default function SafeRoutes() {
   const { profile, lang } = useApp()
@@ -72,19 +87,14 @@ export default function SafeRoutes() {
         <div className="lg:col-span-8 flex flex-col gap-space-lg">
           <div className="bg-surface-container-lowest rounded-2xl p-space-md shadow-md">
             <div className="relative w-full h-[320px] rounded-xl overflow-hidden bg-surface-container-high">
-              <svg viewBox="0 0 800 320" className="w-full h-full" preserveAspectRatio="none">
-                <defs><pattern id="rgrid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="rgb(var(--c-outline-variant))" strokeWidth="0.5" opacity="0.4" /></pattern></defs>
-                <rect width="800" height="320" fill="url(#rgrid)" />
-                {/* Fastest arterial route (red) */}
-                <path d="M 90,230 C 280,200 360,250 500,120 S 680,70 720,80" fill="none" stroke="#ba1a1a" strokeWidth="5" strokeDasharray="10 8" opacity="0.85" strokeLinecap="round" />
-                {/* Safer greenway route (amber→green) */}
-                <path d="M 90,230 C 240,300 460,300 600,200 S 700,110 720,80" fill="none" stroke="#00685f" strokeWidth="6" strokeLinecap="round" />
-                {/* endpoints */}
-                <circle cx="90" cy="230" r="9" fill="#00685f" stroke="#fff" strokeWidth="3" />
-                <circle cx="720" cy="80" r="9" fill="#ba1a1a" stroke="#fff" strokeWidth="3" />
-                {/* construction marker on fast route */}
-                <g transform="translate(500,120)"><rect x="-9" y="-9" width="18" height="18" rx="3" transform="rotate(45)" fill="#ffb95f" stroke="#fff" strokeWidth="2" /></g>
-              </svg>
+              <MapContainer center={[28.625, 77.29]} zoom={12} zoomControl={false} attributionControl style={{ width: '100%', height: '100%' }}>
+                <MapTiles />
+                <Polyline positions={FASTEST_ROUTE} pathOptions={{ color: '#ba1a1a', weight: 5, opacity: 0.88, dashArray: '10 8', lineCap: 'round' }} />
+                <Polyline positions={SAFER_ROUTE} pathOptions={{ color: '#00685f', weight: 6, opacity: 0.92, lineCap: 'round' }} />
+                <CircleMarker center={SAFER_ROUTE[0]} radius={8} pathOptions={{ fillColor: '#00685f', fillOpacity: 1, color: '#fff', weight: 3 }} />
+                <CircleMarker center={SAFER_ROUTE[SAFER_ROUTE.length - 1]} radius={8} pathOptions={{ fillColor: '#ba1a1a', fillOpacity: 1, color: '#fff', weight: 3 }} />
+                <Marker position={[28.6469, 77.3152]} icon={constructionMarker} />
+              </MapContainer>
               <div className="absolute top-space-sm left-space-sm bg-surface-container-lowest/90 backdrop-blur-md px-space-sm py-space-2xs rounded-lg shadow-md font-label-sm text-label-sm text-on-surface">{from} → {to}{result ? ` · ${result.endpoints[0].aqi}/${result.endpoints[1].aqi} AQI` : ''}</div>
               <div className="absolute bottom-space-sm left-space-sm bg-surface-container-lowest/90 backdrop-blur-md px-space-sm py-space-xs rounded-lg shadow-md flex items-center gap-space-md font-label-sm text-label-sm">
                 <span className="flex items-center gap-1.5"><span className="w-6 h-1.5 rounded-full bg-primary"></span> Safer</span>

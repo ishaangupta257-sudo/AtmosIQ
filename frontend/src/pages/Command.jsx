@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react'
-import { MapContainer, TileLayer, Circle, Marker } from 'react-leaflet'
+import { MapContainer, Circle, Marker } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import Icon from '../components/Icon'
+import MapTiles from '../components/MapTiles'
 import { useApp } from '../context/AppContext'
 import { t } from '../i18n'
 import { useLocations, useAlerts, useFires } from '../useLive'
@@ -28,6 +29,34 @@ const DISPATCH = [
   { icon: 'gavel', iconCls: 'text-tertiary', tag: 'GRAP Stage III Auto-Trigger', time: '14:02 IST', title: 'BS-III Petrol & BS-IV Diesel Travel Ban Warning', sub: 'Forecast threshold > 400', status: 'Review Ready', statusCls: 'text-tertiary' },
   { icon: 'construction', iconCls: 'text-on-surface-variant', tag: 'Construction Halt Notice', time: '13:40 IST', title: 'Hotspot Sector 62 C&D Waste Ground Halt', sub: 'Notice #DL-2024-899', status: 'Enforced (100%)', statusCls: 'text-secondary' },
 ]
+const PLUME_POINTS = [
+  { h: 0, inflow: 18, flux: 980, arrivalMin: 620, impact: 'Source lofting' },
+  { h: 6, inflow: 27, flux: 1420, arrivalMin: 410, impact: 'Cross-border transport' },
+  { h: 12, inflow: 34, flux: 1890, arrivalMin: 320, impact: 'Inversion Impact' },
+  { h: 24, inflow: 22, flux: 1210, arrivalMin: 760, impact: 'Dilution window' },
+]
+function interp(a, b, t) {
+  return a + (b - a) * t
+}
+function plumeFor(hour) {
+  const nextIdx = PLUME_POINTS.findIndex(p => p.h >= hour)
+  if (nextIdx <= 0) return PLUME_POINTS[0]
+  const next = PLUME_POINTS[nextIdx]
+  const prev = PLUME_POINTS[nextIdx - 1]
+  const t = (hour - prev.h) / (next.h - prev.h)
+  return {
+    h: hour,
+    inflow: Math.round(interp(prev.inflow, next.inflow, t)),
+    flux: Math.round(interp(prev.flux, next.flux, t)),
+    arrivalMin: Math.round(interp(prev.arrivalMin, next.arrivalMin, t)),
+    impact: next.impact,
+  }
+}
+function arrivalLabel(mins) {
+  const h = Math.floor(mins / 60)
+  const m = mins % 60
+  return `~ ${h}h ${m}m`
+}
 
 // heat blobs (IQAir-style) + station labels for the telemetry map
 const HEAT = [
@@ -62,7 +91,7 @@ function CommandMap({ byId }) {
   return (
     <div className="relative w-full h-[420px] rounded-xl overflow-hidden shadow-inner bg-surface-container-high">
       <MapContainer ref={mapRef} center={[28.625, 77.23]} zoom={11} zoomControl={false} attributionControl style={{ width: '100%', height: '100%' }}>
-        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap" />
+        <MapTiles />
         {HEAT.map((h, i) => (
           <Circle key={i} center={h.c} radius={h.r} interactive={false}
             pathOptions={{ stroke: false, fillColor: h.color, fillOpacity: h.op, className: 'heat-blob' }} />
@@ -84,6 +113,7 @@ export default function Command() {
   const { lang } = useApp()
   const T = (s) => t(s, lang)
   const [tab, setTab] = useState('overview')
+  const [plumeHour, setPlumeHour] = useState(12)
   const { list, byId } = useLocations()
   const alerts = useAlerts()
   const fires = useFires()
@@ -98,6 +128,7 @@ export default function Command() {
   const cityMaxCat = cityMax == null ? null : cityMax <= 200 ? 'Moderate' : cityMax <= 300 ? 'Poor' : cityMax <= 400 ? 'Very Poor' : 'Severe'
   const grapStage = alerts?.grap?.stage
   const fireCount = fires ? fires.length : null
+  const plume = plumeFor(plumeHour)
 
   return (
     <>
@@ -178,17 +209,17 @@ export default function Command() {
                 <div className="flex items-center justify-between pb-space-xs"><div className="flex items-center gap-space-xs"><span className="w-3 h-3 rounded-full bg-tertiary-container"></span><span className="font-title text-title text-on-surface font-bold">{T('Stubble Plume Drift Model')}</span></div><span className="font-label-sm text-label-sm px-space-xs py-0.5 rounded bg-surface-container-high text-on-surface-variant font-semibold">HYSPLIT V5</span></div>
                 <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">{T('Trajectory projection calculated from Sangrur/Karnal farm clusters based on GFS meteo forecasts.')}</p>
                 <div className="my-space-md p-space-sm rounded-xl bg-surface-container-low relative overflow-hidden">
-                  <div className="flex items-center justify-between mb-space-xs"><span className="font-label-sm text-label-sm font-bold text-on-surface">{T('Calculated Inflow Fraction')}</span><span className="font-label-md text-label-md font-extrabold text-error">{T('34% of Delhi NCT PM2.5')}</span></div>
-                  <div className="w-full bg-surface-container-high h-2.5 rounded-full overflow-hidden mb-space-sm"><div className="bg-gradient-to-r from-secondary via-tertiary to-error h-full rounded-full" style={{ width: '34%' }}></div></div>
+                  <div className="flex items-center justify-between mb-space-xs"><span className="font-label-sm text-label-sm font-bold text-on-surface">{T('Calculated Inflow Fraction')}</span><span className="font-label-md text-label-md font-extrabold text-error">{T(`${plume.inflow}% of Delhi NCT PM2.5`)}</span></div>
+                  <div className="w-full bg-surface-container-high h-2.5 rounded-full overflow-hidden mb-space-sm"><div className="bg-gradient-to-r from-secondary via-tertiary to-error h-full rounded-full transition-all duration-300" style={{ width: `${plume.inflow}%` }}></div></div>
                   <div className="bg-surface-container-lowest p-space-xs rounded-lg shadow-sm">
                     <div className="flex items-center justify-between text-on-surface-variant font-label-sm text-label-sm mb-1 font-semibold"><span className="text-primary font-bold">T+0h</span><span>T+6h</span><span>T+12h</span><span>T+24h</span></div>
-                    <input className="w-full accent-primary cursor-pointer" max="24" min="0" type="range" defaultValue="8" />
-                    <div className="flex justify-between font-label-sm text-label-sm text-outline mt-1"><span>15:00 IST</span><span className="text-error font-semibold">{T('23:00 IST Inversion Impact')}</span><span>15:00 +1d</span></div>
+                    <input className="w-full accent-primary cursor-pointer" max="24" min="0" step="1" type="range" value={plumeHour} onChange={(e) => setPlumeHour(Number(e.target.value))} />
+                    <div className="flex justify-between font-label-sm text-label-sm text-outline mt-1"><span>15:00 IST</span><span className="text-error font-semibold">{T(`T+${plumeHour}h ${plume.impact}`)}</span><span>15:00 +1d</span></div>
                   </div>
                 </div>
                 <div className="space-y-space-xs mb-space-md">
-                  <div className="flex items-center justify-between p-space-xs rounded-lg bg-surface-container-low"><div className="flex items-center gap-space-xs"><Icon name="flare" className="text-[1.1rem] text-tertiary" /><span className="font-body-sm text-body-sm font-semibold text-on-surface">{T('Estimated Smoke Flux')}</span></div><span className="font-label-md text-label-md font-bold text-on-surface">1,890 µg/m³-km</span></div>
-                  <div className="flex items-center justify-between p-space-xs rounded-lg bg-surface-container-low"><div className="flex items-center gap-space-xs"><Icon name="schedule" className="text-[1.1rem] text-primary" /><span className="font-body-sm text-body-sm font-semibold text-on-surface">{T('Arrival at NCR Border')}</span></div><span className="font-label-md text-label-md font-bold text-error">~ 5h 20m</span></div>
+                  <div className="flex items-center justify-between p-space-xs rounded-lg bg-surface-container-low"><div className="flex items-center gap-space-xs"><Icon name="flare" className="text-[1.1rem] text-tertiary" /><span className="font-body-sm text-body-sm font-semibold text-on-surface">{T('Estimated Smoke Flux')}</span></div><span className="font-label-md text-label-md font-bold text-on-surface">{plume.flux.toLocaleString()} µg/m³-km</span></div>
+                  <div className="flex items-center justify-between p-space-xs rounded-lg bg-surface-container-low"><div className="flex items-center gap-space-xs"><Icon name="schedule" className="text-[1.1rem] text-primary" /><span className="font-body-sm text-body-sm font-semibold text-on-surface">{T('Arrival at NCR Border')}</span></div><span className="font-label-md text-label-md font-bold text-error">{arrivalLabel(plume.arrivalMin)}</span></div>
                 </div>
               </div>
               <button className="w-full py-space-xs px-space-md bg-primary hover:bg-primary-container text-on-primary font-label-md text-label-md font-bold rounded-lg shadow-sm transition-all flex items-center justify-center gap-space-xs"><Icon name="tune" className="text-[1.1rem]" /> {T('Open Full Aerodynamic Workbench')}</button>
@@ -263,6 +294,8 @@ export default function Command() {
 }
 
 function PlumePanel({ T }) {
+  const [plumeHour, setPlumeHour] = useState(12)
+  const plume = plumeFor(plumeHour)
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-space-md">
       <div className="lg:col-span-8 bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex flex-col">
@@ -272,7 +305,7 @@ function PlumePanel({ T }) {
         </div>
         <CommandMap />
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-space-sm mt-space-sm">
-          {[['Upwind FRP', '4,820 MW'], ['Active Fire Spots', '1,248'], ['Transport Wind', 'NW @ 14 km/h'], ['Inflow Fraction', '34% NCT PM2.5']].map(([k, v]) => (
+          {[['Upwind FRP', '4,820 MW'], ['Active Fire Spots', '1,248'], ['Transport Wind', 'NW @ 14 km/h'], ['Inflow Fraction', `${plume.inflow}% NCT PM2.5`]].map(([k, v]) => (
             <div key={k} className="p-space-sm rounded-lg bg-surface-container-low"><div className="font-label-sm text-label-sm text-outline">{k}</div><div className="font-title text-title font-bold text-on-surface">{v}</div></div>
           ))}
         </div>
@@ -283,12 +316,12 @@ function PlumePanel({ T }) {
           <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">{T('Trajectory projection calculated from Sangrur/Karnal farm clusters based on GFS meteo forecasts.')}</p>
         </div>
         <div className="p-space-sm rounded-xl bg-surface-container-low">
-          <div className="flex items-center justify-between mb-space-xs"><span className="font-label-sm text-label-sm font-bold text-on-surface">{T('Calculated Inflow Fraction')}</span><span className="font-label-md text-label-md font-extrabold text-error">34%</span></div>
-          <div className="w-full bg-surface-container-high h-2.5 rounded-full overflow-hidden mb-space-sm"><div className="bg-gradient-to-r from-secondary via-tertiary to-error h-full rounded-full" style={{ width: '34%' }}></div></div>
-          <input className="w-full accent-primary cursor-pointer" max="24" min="0" type="range" defaultValue="8" />
-          <div className="flex justify-between font-label-sm text-label-sm text-outline mt-1"><span>T+0h</span><span className="text-error font-semibold">{T('23:00 IST Inversion Impact')}</span><span>T+24h</span></div>
+          <div className="flex items-center justify-between mb-space-xs"><span className="font-label-sm text-label-sm font-bold text-on-surface">{T('Calculated Inflow Fraction')}</span><span className="font-label-md text-label-md font-extrabold text-error">{plume.inflow}%</span></div>
+          <div className="w-full bg-surface-container-high h-2.5 rounded-full overflow-hidden mb-space-sm"><div className="bg-gradient-to-r from-secondary via-tertiary to-error h-full rounded-full transition-all duration-300" style={{ width: `${plume.inflow}%` }}></div></div>
+          <input className="w-full accent-primary cursor-pointer" max="24" min="0" step="1" type="range" value={plumeHour} onChange={(e) => setPlumeHour(Number(e.target.value))} />
+          <div className="flex justify-between font-label-sm text-label-sm text-outline mt-1"><span>T+0h</span><span className="text-error font-semibold">{T(`T+${plumeHour}h ${plume.impact}`)}</span><span>T+24h</span></div>
         </div>
-        {[['flare', T('Estimated Smoke Flux'), '1,890 µg/m³-km', 'text-tertiary'], ['schedule', T('Arrival at NCR Border'), '~ 5h 20m', 'text-primary']].map(([ic, k, v, c]) => (
+        {[['flare', T('Estimated Smoke Flux'), `${plume.flux.toLocaleString()} µg/m³-km`, 'text-tertiary'], ['schedule', T('Arrival at NCR Border'), arrivalLabel(plume.arrivalMin), 'text-primary']].map(([ic, k, v, c]) => (
           <div key={k} className="flex items-center justify-between p-space-sm rounded-lg bg-surface-container-low"><div className="flex items-center gap-space-xs"><Icon name={ic} className={`text-[1.1rem] ${c}`} /><span className="font-body-sm text-body-sm font-semibold text-on-surface">{k}</span></div><span className="font-label-md text-label-md font-bold text-on-surface">{v}</span></div>
         ))}
         <button className="mt-auto w-full py-space-xs px-space-md bg-primary hover:bg-primary-container text-on-primary font-label-md text-label-md font-bold rounded-lg shadow-sm transition-all flex items-center justify-center gap-space-xs"><Icon name="tune" className="text-[1.1rem]" /> {T('Open Full Aerodynamic Workbench')}</button>
