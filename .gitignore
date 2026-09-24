@@ -4,6 +4,14 @@ frontend/dist/
 backend/.env
 *.log
 
+# Local env files (keep .env.example and .env.production committed as the
+# documented source of truth; ignore machine-local overrides).
+.env
+.env.local
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+
 # Python
 __pycache__/
 *.pyc

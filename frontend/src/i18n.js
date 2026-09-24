@@ -217,6 +217,7 @@ Object.assign(HI, {
   'Route A: Direct Arterial': 'मार्ग A: सीधा धमनी',
   // ---- Forecast explainability (SHAP) ----
   'Comparing…': 'तुलना हो रही है…',
+  'Calculating route…': 'मार्ग की गणना हो रही है…',
   'Why this forecast?': 'यह पूर्वानुमान क्यों?',
   'SHAP feature attribution · XGBoost': 'SHAP फ़ीचर एट्रिब्यूशन · XGBoost',
 })

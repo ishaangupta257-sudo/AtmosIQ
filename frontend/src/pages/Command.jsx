@@ -1,5 +1,6 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import { MapContainer, Circle, Marker } from 'react-leaflet'
+import { api } from '../api'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import Icon from '../components/Icon'
@@ -129,6 +130,29 @@ export default function Command() {
   const grapStage = alerts?.grap?.stage
   const fireCount = fires ? fires.length : null
   const plume = plumeFor(plumeHour)
+
+  // ---- Pipeline health (GET /pipeline/status, POST /pipeline/run) ----
+  const [pipe, setPipe] = useState(null)
+  const [running, setRunning] = useState(false)
+  useEffect(() => { api.pipelineStatus().then((d) => d && setPipe(d)) }, [])
+  const runPipeline = async () => {
+    setRunning(true)
+    const d = await api.pipelineRun()
+    if (d) setPipe(d)
+    setRunning(false)
+  }
+
+  // ---- Add construction site (POST /construction) ----
+  const [cName, setCName] = useState('')
+  const [cArea, setCArea] = useState('')
+  const [cMsg, setCMsg] = useState('')
+  const addSite = async () => {
+    const st = (list || []).find((l) => l.location === cArea) || (list || [])[0]
+    if (!cName.trim() || !st) { setCMsg('Enter a site name.'); return }
+    const r = await api.addConstruction({ name: cName.trim(), lat: st.lat, lon: st.lon, agency: 'Ops-entered', note: 'Field-reported C&D dust source.' })
+    setCMsg(r ? `Added "${r.name}" near ${st.name}.` : 'Add failed — backend offline.')
+    if (r) setCName('')
+  }
 
   return (
     <>
@@ -282,6 +306,46 @@ export default function Command() {
                 ))}
               </div>
               <button className="mt-space-sm w-full py-space-xs px-space-md rounded-lg bg-surface-container-low text-primary font-label-md text-label-md font-bold hover:bg-surface-container transition-colors flex items-center justify-center gap-space-xs"><Icon name="notifications_active" className="text-[1.1rem]" /> {T('Review All Active Directives & Triggers')}</button>
+            </div>
+          </div>
+
+          {/* Ops actions — ML pipeline control + field construction entry */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-space-md">
+            {/* Pipeline health */}
+            <div className="lg:col-span-5 bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex flex-col gap-space-sm">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-space-xs"><Icon name="account_tree" className="text-primary text-[1.25rem]" /><span className="font-title text-title text-on-surface font-bold">{T('ML Pipeline Health')}</span></div>
+                <span className={`px-space-xs py-space-2xs rounded-full font-label-sm text-label-sm font-semibold ${pipe?.stages ? 'bg-secondary-container text-on-secondary-container' : 'bg-surface-container-high text-on-surface-variant'}`}>
+                  {pipe?.stages ? `${pipe.stages.filter((s) => s.status === 'ok').length}/${pipe.stages.length} stages OK` : T('No run yet')}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-space-xs font-label-sm text-label-sm">
+                <div className="p-space-xs rounded-lg bg-surface-container-low"><span className="text-outline block">{T('Model')}</span><span className="text-on-surface font-bold">{pipe?.metrics?.algo || '—'}</span></div>
+                <div className="p-space-xs rounded-lg bg-surface-container-low"><span className="text-outline block">{T('Mean MAE (PM2.5)')}</span><span className="text-on-surface font-bold">{pipe?.metrics?.mean_mae != null ? `${pipe.metrics.mean_mae} µg/m³` : '—'}</span></div>
+                <div className="p-space-xs rounded-lg bg-surface-container-low"><span className="text-outline block">{T('Last run')}</span><span className="text-on-surface font-bold">{pipe?.finished_at ? pipe.finished_at.slice(11, 16) : '—'}</span></div>
+                <div className="p-space-xs rounded-lg bg-surface-container-low"><span className="text-outline block">{T('Store')}</span><span className="text-on-surface font-bold">{pipe?.mode || '—'}</span></div>
+              </div>
+              <button onClick={runPipeline} disabled={running} className="w-full py-space-xs rounded-lg bg-primary text-on-primary font-label-md text-label-md font-bold shadow-sm hover:bg-primary-container transition-all flex items-center justify-center gap-space-xs disabled:opacity-60">
+                <Icon name={running ? 'progress_activity' : 'play_arrow'} className={`text-[1.1rem] ${running ? 'animate-spin' : ''}`} /> {running ? T('Running pipeline…') : T('Run Pipeline Now')}
+              </button>
+            </div>
+
+            {/* Add construction site */}
+            <div className="lg:col-span-7 bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex flex-col gap-space-sm">
+              <div className="flex items-center gap-space-xs"><Icon name="add_location_alt" className="text-tertiary text-[1.25rem]" /><span className="font-title text-title text-on-surface font-bold">{T('Log Construction / Dust Source')}</span></div>
+              <p className="font-body-sm text-body-sm text-on-surface-variant">{T('Field-reported C&D sites appear as amber dust zones on the Live Map & Home map.')}</p>
+              <div className="flex flex-col sm:flex-row gap-space-xs">
+                <input value={cName} onChange={(e) => setCName(e.target.value)} placeholder={T('Site name (e.g. Barapullah Ph-4)')} className="flex-1 bg-surface-container-low rounded-lg px-space-sm py-space-xs font-body-sm text-body-sm text-on-surface outline-none placeholder:text-outline" />
+                <div className="relative">
+                  <select value={cArea} onChange={(e) => setCArea(e.target.value)} className="appearance-none bg-surface-container-low rounded-lg px-space-sm py-space-xs pr-8 font-body-sm text-body-sm text-on-surface outline-none cursor-pointer w-full">
+                    <option value="">{T('Nearest area…')}</option>
+                    {(list || []).map((l) => <option key={l.location} value={l.location}>{l.name}</option>)}
+                  </select>
+                  <Icon name="expand_more" className="absolute right-2 top-2.5 pointer-events-none text-on-surface-variant text-[1.1rem]" />
+                </div>
+                <button onClick={addSite} className="px-space-md py-space-xs rounded-lg bg-tertiary text-on-tertiary font-label-md text-label-md font-bold hover:opacity-90 transition-all flex items-center justify-center gap-1 shrink-0"><Icon name="add" className="text-[1.1rem]" /> {T('Add')}</button>
+              </div>
+              {cMsg && <span className="font-label-sm text-label-sm text-secondary">{cMsg}</span>}
             </div>
           </div>
           </>)}

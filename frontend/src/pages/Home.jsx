@@ -225,13 +225,16 @@ export default function Home() {
               {mapView === 'wind' && (
                 <svg className="absolute inset-0 w-full h-full" viewBox="0 0 400 300" preserveAspectRatio="none">
                   <defs>
-                    <marker id="homewv" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L5,3 L0,6 Z" fill="#00685f" opacity="0.75" /></marker>
+                    <marker id="homewv" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L5,3 L0,6 Z" fill="#22d3ee" /></marker>
+                    <filter id="homewv-glow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="0" stdDeviation="1.2" floodColor="#0e2b33" floodOpacity="0.9" /></filter>
                   </defs>
-                  {[40, 100, 160, 220, 270].map((y, i) => (
-                    <path key={i} d={`M -20,${y} C 120,${y - 25} 240,${y + 25} 420,${y - 15}`} fill="none" stroke="#00685f" strokeOpacity="0.5" strokeWidth="1.5" strokeDasharray="8 10" markerEnd="url(#homewv)">
-                      <animate attributeName="stroke-dashoffset" from="0" to="-36" dur={`${2 + i * 0.3}s`} repeatCount="indefinite" />
-                    </path>
-                  ))}
+                  <g filter="url(#homewv-glow)">
+                    {[24, 64, 104, 144, 184, 224, 264].map((y, i) => (
+                      <path key={i} d={`M -20,${y} C 120,${y - 22} 240,${y + 22} 420,${y - 15}`} fill="none" stroke="#38e5ff" strokeOpacity="0.85" strokeWidth="1.8" strokeLinecap="round" strokeDasharray="8 11" markerEnd="url(#homewv)">
+                        <animate attributeName="stroke-dashoffset" from="0" to="-38" dur={`${1.8 + (i % 4) * 0.3}s`} repeatCount="indefinite" />
+                      </path>
+                    ))}
+                  </g>
                 </svg>
               )}
             </div>
@@ -424,16 +427,18 @@ function AqiTempForecast({ aqi, lang, areaName }) {
   const [live, setLive] = useState(null)     // model AQI values, indexed by hour
   const [explain, setExplain] = useState(null)
   const [showWhy, setShowWhy] = useState(false)
+  const [mode, setMode] = useState('corrected') // 'corrected' | 'raw'
 
-  // Fetch the bias-corrected 72h forecast + SHAP explanation from the backend.
-  // Fails soft: if the API is down, `live` stays null and the local model shows.
+  // Fetch the 72h forecast (bias-corrected or raw) + SHAP explanation from the
+  // backend. Fails soft: if the API is down, `live` stays null and local shows.
   useEffect(() => {
     let alive = true
     setShowWhy(false)
-    api.forecast(areaName).then((d) => { if (alive && d?.forecast) setLive(d) })
+    const fetcher = mode === 'raw' ? api.forecastRaw : api.forecast
+    fetcher(areaName).then((d) => { if (alive && d?.forecast) setLive(d) })
     api.explain(areaName).then((d) => { if (alive && d?.drivers?.length) setExplain(d) })
     return () => { alive = false }
-  }, [areaName])
+  }, [areaName, mode])
 
   const localHourly = useMemo(() => {
     const now = new Date(); const curH = now.getHours()
@@ -455,13 +460,19 @@ function AqiTempForecast({ aqi, lang, areaName }) {
   }, [aqi])
 
   // Overlay real model AQI onto the tiles (temperature keeps the diurnal proxy).
+  // IMPORTANT: the backend forecast array starts at t+1h (forecast[0] === +1h),
+  // so the "Now" tile (i===0) must use the CURRENT AQI — the same value the
+  // National AQI gauge shows — and forecast step `i` maps to tile `i` (t+i h).
+  // Without this shift, "Now" showed the +1h prediction and disagreed with the
+  // gauge for the same location/time.
   const hourly = useMemo(() => {
     if (!live?.forecast) return localHourly
     return localHourly.map((p, i) => {
-      const f = live.forecast[i]
+      if (i === 0) return { ...p, a: aqi }        // "Now" == current National AQI
+      const f = live.forecast[i - 1]              // tile i (t+i h) == forecast step i
       return f ? { ...p, a: f.aqi } : p
     })
-  }, [localHourly, live])
+  }, [localHourly, live, aqi])
   const days = useMemo(() => {
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
     const today = new Date()
@@ -486,7 +497,19 @@ function AqiTempForecast({ aqi, lang, areaName }) {
           <Icon name="timeline" className="text-[1.25rem] shrink-0" />
           <span className="font-title text-title font-semibold text-on-surface truncate">{T('AQI & Temperature Forecast')}</span>
         </div>
-        <span className="font-label-sm text-label-sm text-outline shrink-0">{T('Next 72 hours')}</span>
+        <div className="flex items-center gap-space-xs shrink-0">
+          {live && (
+            <div className="flex items-center gap-0.5 bg-surface-container rounded-full p-0.5" title={T('Compare raw model output vs bias-corrected forecast')}>
+              {[['corrected', 'Corrected'], ['raw', 'Raw']].map(([m, lbl]) => (
+                <button key={m} onClick={() => setMode(m)}
+                  className={`px-2 py-0.5 rounded-full text-[0.62rem] font-bold transition-colors ${mode === m ? 'bg-surface-container-lowest text-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'}`}>
+                  {T(lbl)}
+                </button>
+              ))}
+            </div>
+          )}
+          <span className="font-label-sm text-label-sm text-outline">{T('Next 72 hours')}</span>
+        </div>
       </div>
       <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollSnapType: 'x proximity' }}>
         {days.map((day, dayIdx) => (

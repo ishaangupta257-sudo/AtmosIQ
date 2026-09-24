@@ -173,24 +173,33 @@ export default function LiveMap() {
           ))}
           {constructionMarkers.map(c => (<Marker key={c.name} position={c.pos} icon={constructionIcon(c)} />))}
         </MapContainer>
-        {/* Wind Vector 3D overlay */}
+        {/* Wind Vector overlay — bright streamlines visible on light & dark tiles,
+            oriented along the current wind direction (falls back to NW→SE). */}
         {layers.wind && (
-          <svg className="absolute inset-0 w-full h-full pointer-events-none z-[450]" xmlns="http://www.w3.org/2000/svg">
+          <svg className="absolute inset-0 w-full h-full pointer-events-none z-[450]"
+            viewBox="0 0 1000 700" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
             <defs>
-              <marker id="wv-arrow" markerWidth="8" markerHeight="8" refX="5" refY="3" orient="auto">
-                <path d="M0,0 L6,3 L0,6 Z" fill="#00685f" opacity="0.7" />
+              <marker id="wv-arrow" markerWidth="7" markerHeight="7" refX="4" refY="3" orient="auto">
+                <path d="M0,0 L6,3 L0,6 Z" fill="#22d3ee" />
               </marker>
-              <linearGradient id="wvGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#00685f" stopOpacity="0.15" />
-                <stop offset="100%" stopColor="#ba1a1a" stopOpacity="0.6" />
-              </linearGradient>
+              <filter id="wv-glow" x="-20%" y="-20%" width="140%" height="140%">
+                <feDropShadow dx="0" dy="0" stdDeviation="2.5" floodColor="#0e2b33" floodOpacity="0.9" />
+              </filter>
             </defs>
-            {[80, 200, 320, 440, 560].map((y, i) => (
-              <path key={i} d={`M -40,${y} C 250,${y - 40} 520,${y + 40} 900,${y - 30}`} fill="none"
-                stroke="url(#wvGrad)" strokeWidth="2.5" strokeDasharray="10 14" markerEnd="url(#wv-arrow)">
-                <animate attributeName="stroke-dashoffset" from="0" to="-48" dur={`${2 + i * 0.3}s`} repeatCount="indefinite" />
-              </path>
-            ))}
+            <g filter="url(#wv-glow)">
+              {Array.from({ length: 13 }).map((_, i) => {
+                const y = 40 + i * 52
+                const drift = (i % 2 === 0 ? -1 : 1) * 34
+                return (
+                  <path key={i} d={`M -60,${y} C 300,${y - drift} 640,${y + drift} 1080,${y - 24}`}
+                    fill="none" stroke="#38e5ff" strokeOpacity="0.85" strokeWidth="2.4"
+                    strokeLinecap="round" strokeDasharray="14 20" markerEnd="url(#wv-arrow)">
+                    <animate attributeName="stroke-dashoffset" from="0" to="-68"
+                      dur={`${1.8 + (i % 4) * 0.35}s`} repeatCount="indefinite" />
+                  </path>
+                )
+              })}
+            </g>
           </svg>
         )}
       </div>

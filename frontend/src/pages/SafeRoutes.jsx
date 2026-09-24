@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { MapContainer, Polyline, CircleMarker, Marker } from 'react-leaflet'
+import { useState, useEffect } from 'react'
+import { MapContainer, Polyline, CircleMarker, Marker, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import Icon from '../components/Icon'
@@ -8,6 +8,7 @@ import { useApp } from '../context/AppContext'
 import { t } from '../i18n'
 import HealthProfileModal from '../components/HealthProfileModal'
 import { api } from '../api'
+import { routeBetween } from '../routing'
 
 function catOf(aqi) {
   if (aqi <= 50) return 'Good'; if (aqi <= 100) return 'Satisfactory'; if (aqi <= 200) return 'Moderate'
@@ -31,22 +32,49 @@ export default function SafeRoutes() {
   const [showModal, setShowModal] = useState(!profile)
   const [from, setFrom] = useState('Connaught Place')
   const [to, setTo] = useState('Noida Sec-62')
-  const [result, setResult] = useState(null)
+  const [result, setResult] = useState(null)   // backend AQI/verdict (best-effort)
+  const [geo, setGeo] = useState(null)         // client-side OSRM road geometry
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
   const s = suitabilityFor(profile)
 
-  // Compare routes against the live endpoint AQIs from the backend.
+  // Compute road-following geometry client-side (real streets, no API key) and
+  // fetch AQI/verdict from the backend in parallel. Geometry never depends on
+  // the backend, so routes always follow roads even if the API is down.
   const compare = async () => {
-    setLoading(true)
-    const r = await api.routeSuitability({ from, to, healthProfile: profile || {} })
+    setLoading(true); setError('')
+    const [g, r] = await Promise.all([
+      routeBetween(from, to),
+      api.routeSuitability({ from, to, healthProfile: profile || {} }),
+    ])
     setResult(r)
+    if (g && !g.error) {
+      setGeo(g)
+    } else {
+      setGeo(null)
+      setError(g?.error === 'geocode'
+        ? 'Couldn’t find one of those places. Try a more specific name (e.g. “Connaught Place, Delhi”).'
+        : 'Routing service is busy right now — please try again in a moment.')
+    }
     setLoading(false)
   }
+  // Draw real roads immediately on first load (default From/To).
+  useEffect(() => { compare() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Derive the two route AQIs from the real average: direct passes the hotspot
   // (higher), greenway is buffered (lower). Falls back to the static demo values.
   const safeAqi = result ? Math.round(result.routeAqi * 0.78) : 214
   const fastAqi = result ? Math.round(result.routeAqi * 1.12) : 338
   const verdict = result ? result.verdict : s.short
+  // Geometry source: client OSRM first, then backend OSRM, then static demo.
+  const routeSrc = geo || (result?.fastest?.coords?.length ? result : null)
+  const hasRealRoute = Boolean(routeSrc)
+  const fastCoords = routeSrc?.fastest?.coords || FASTEST_ROUTE
+  const safeCoords = routeSrc?.safer?.coords || SAFER_ROUTE
+  const startPt = geo?.start || (result?.endpoints?.[0]?.lat != null ? [result.endpoints[0].lat, result.endpoints[0].lon] : safeCoords[0])
+  const endPt = geo?.end || (result?.endpoints?.[1]?.lat != null ? [result.endpoints[1].lat, result.endpoints[1].lon] : safeCoords[safeCoords.length - 1])
+  const fastMeta = routeSrc?.fastest ? `${routeSrc.fastest.durationMin} min · ${routeSrc.fastest.distanceKm} km` : '34 min'
+  const saferMeta = routeSrc?.safer ? `${routeSrc.safer.durationMin} min · ${routeSrc.safer.distanceKm} km` : '42 min (+8 min)'
 
   return (
     <div className="w-full max-w-7xl mx-auto px-space-md lg:px-margin-desktop py-space-lg flex flex-col gap-space-lg">
@@ -70,6 +98,11 @@ export default function SafeRoutes() {
             <div className="flex items-center gap-space-xs bg-surface-container-low rounded-xl px-space-md py-space-xs mt-space-2xs"><Icon name="place" className="text-error text-[1.1rem]" /><input value={to} onChange={e => setTo(e.target.value)} className="flex-1 bg-transparent outline-none font-body-md text-body-md text-on-surface" /></div>
           </div>
           <button onClick={compare} disabled={loading} className="w-full py-space-sm rounded-full bg-primary text-on-primary font-label-md text-label-md font-bold shadow-md hover:bg-primary-container transition-all flex items-center justify-center gap-space-xs disabled:opacity-60"><Icon name={loading ? 'progress_activity' : 'alt_route'} className={`text-[1.1rem] ${loading ? 'animate-spin' : ''}`} /> {loading ? T('Comparing…') : T('Compare Routes')}</button>
+          {error && (
+            <div className="flex items-start gap-space-2xs text-error font-label-sm text-label-sm bg-error-container/40 rounded-lg px-space-sm py-space-xs">
+              <Icon name="error" className="text-[1rem] mt-0.5 shrink-0" />{error}
+            </div>
+          )}
 
           <div className="bg-surface-container-low rounded-2xl p-space-md flex flex-col gap-space-xs">
             <div className="flex items-center justify-between">
@@ -89,12 +122,20 @@ export default function SafeRoutes() {
             <div className="relative w-full h-[320px] rounded-xl overflow-hidden bg-surface-container-high">
               <MapContainer center={[28.625, 77.29]} zoom={12} zoomControl={false} attributionControl style={{ width: '100%', height: '100%' }}>
                 <MapTiles />
-                <Polyline positions={FASTEST_ROUTE} pathOptions={{ color: '#ba1a1a', weight: 5, opacity: 0.88, dashArray: '10 8', lineCap: 'round' }} />
-                <Polyline positions={SAFER_ROUTE} pathOptions={{ color: '#00685f', weight: 6, opacity: 0.92, lineCap: 'round' }} />
-                <CircleMarker center={SAFER_ROUTE[0]} radius={8} pathOptions={{ fillColor: '#00685f', fillOpacity: 1, color: '#fff', weight: 3 }} />
-                <CircleMarker center={SAFER_ROUTE[SAFER_ROUTE.length - 1]} radius={8} pathOptions={{ fillColor: '#ba1a1a', fillOpacity: 1, color: '#fff', weight: 3 }} />
-                <Marker position={[28.6469, 77.3152]} icon={constructionMarker} />
+                <Polyline positions={fastCoords} pathOptions={{ color: '#ba1a1a', weight: 5, opacity: 0.88, dashArray: '10 8', lineCap: 'round' }} />
+                <Polyline positions={safeCoords} pathOptions={{ color: '#00685f', weight: 6, opacity: 0.92, lineCap: 'round' }} />
+                <CircleMarker center={startPt} radius={8} pathOptions={{ fillColor: '#00685f', fillOpacity: 1, color: '#fff', weight: 3 }} />
+                <CircleMarker center={endPt} radius={8} pathOptions={{ fillColor: '#ba1a1a', fillOpacity: 1, color: '#fff', weight: 3 }} />
+                <FitRoute coords={[...fastCoords, ...safeCoords]} />
               </MapContainer>
+              {loading && (
+                <div className="absolute inset-0 z-[500] flex items-center justify-center bg-surface-container-high/50 backdrop-blur-[2px] pointer-events-none">
+                  <div className="flex items-center gap-space-xs bg-surface-container-lowest px-space-md py-space-sm rounded-full shadow-lg">
+                    <Icon name="progress_activity" className="animate-spin text-primary text-[1.2rem]" />
+                    <span className="font-label-md text-label-md font-semibold text-on-surface">{T('Calculating route…')}</span>
+                  </div>
+                </div>
+              )}
               <div className="absolute top-space-sm left-space-sm bg-surface-container-lowest/90 backdrop-blur-md px-space-sm py-space-2xs rounded-lg shadow-md font-label-sm text-label-sm text-on-surface">{from} → {to}{result ? ` · ${result.endpoints[0].aqi}/${result.endpoints[1].aqi} AQI` : ''}</div>
               <div className="absolute bottom-space-sm left-space-sm bg-surface-container-lowest/90 backdrop-blur-md px-space-sm py-space-xs rounded-lg shadow-md flex items-center gap-space-md font-label-sm text-label-sm">
                 <span className="flex items-center gap-1.5"><span className="w-6 h-1.5 rounded-full bg-primary"></span> Safer</span>
@@ -114,7 +155,7 @@ export default function SafeRoutes() {
                 <p className="font-body-sm text-body-sm text-on-surface-variant">Via Ring Road &amp; Dwarka corridor buffer. Avoids 2 construction zones.</p>
               </div>
               <div className="space-y-space-xs">
-                <Kv k="Est. Travel Time:" v="42 min (+8 min)" />
+                <Kv k="Est. Travel Time:" v={saferMeta} />
                 <Kv k="PM2.5 Exposure:" v={`-${Math.max(0, Math.round((1 - safeAqi / fastAqi) * 100))}% vs fastest`} vCls="text-secondary" />
                 <Kv k="Suitability:" v={verdict} vCls={s.textCls} />
               </div>
@@ -128,7 +169,7 @@ export default function SafeRoutes() {
                 <p className="font-body-sm text-body-sm text-on-surface-variant">Via NH-24 central. Passes the Anand Vihar hotspot at peak.</p>
               </div>
               <div className="space-y-space-xs">
-                <Kv k="Est. Travel Time:" v="34 min" />
+                <Kv k="Est. Travel Time:" v={fastMeta} />
                 <Kv k="PM2.5 Exposure:" v={`+${Math.max(0, fastAqi - safeAqi)} AQI exposure`} vCls="text-error" />
                 <Kv k="Bronchial Strain:" v="High Risk" vCls="text-error" />
               </div>
@@ -143,6 +184,18 @@ export default function SafeRoutes() {
 
 function Kv({ k, v, vCls = 'text-on-surface' }) {
   return <div className="flex items-center justify-between font-label-sm text-label-sm"><span className="text-on-surface-variant">{k}</span><span className={`font-bold ${vCls}`}>{v}</span></div>
+}
+
+// Fit the map to the drawn routes whenever they change (new comparison result).
+function FitRoute({ coords }) {
+  const map = useMap()
+  const sig = coords.length ? `${coords.length}:${coords[0]}:${coords[coords.length - 1]}` : ''
+  useEffect(() => {
+    if (coords.length > 1) {
+      try { map.fitBounds(L.latLngBounds(coords), { padding: [30, 30], maxZoom: 14 }) } catch { /* noop */ }
+    }
+  }, [sig]) // eslint-disable-line react-hooks/exhaustive-deps
+  return null
 }
 
 function suitabilityFor(profile) {

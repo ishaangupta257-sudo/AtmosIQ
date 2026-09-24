@@ -18,9 +18,11 @@ The frontend never touches this directly; Node proxies it. Endpoints:
 Run: uvicorn serve:app --port 8000   (from the ml-engine directory)
 """
 from __future__ import annotations
+import os
 from functools import lru_cache
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
 from config import (LOCATIONS, LOCATION_BY_ID, ARTIFACT_DIR, POLLUTANTS,
                     pm25_to_aqi, aqi_category, grap_stage)
@@ -32,6 +34,26 @@ from bias_correction.bias_correction import apply as bias_apply
 from explainability.shap_explain import explain as shap_explain
 
 app = FastAPI(title="AtmosIQ ML Engine", version="1.0")
+
+# ---- CORS ----
+# The browser (Netlify frontend) calls this API cross-origin, so it must send
+# CORS headers. Set CORS_ORIGINS (comma-separated) in the Render dashboard to
+# your exact Netlify site URL(s); the defaults cover the known site plus any
+# *.netlify.app preview/branch deploy and local dev.
+_default_origins = [
+    "https://clever-jalebi-23f6e8.netlify.app",  # known deployed frontend (update to your site)
+    "http://localhost:5173",
+    "http://localhost:3000",
+]
+_env_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_env_origins or _default_origins,
+    allow_origin_regex=r"https://.*\.netlify\.app",  # Netlify preview/branch deploys
+    allow_methods=["*"],
+    allow_headers=["*"],
+    allow_credentials=False,
+)
 
 
 def _has_model(loc_id):

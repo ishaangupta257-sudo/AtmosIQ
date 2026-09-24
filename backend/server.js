@@ -15,7 +15,13 @@ import * as ml from './src/mlClient.js';
 import api from './src/routes/api.js';
 
 const app = express();
-app.use(cors());
+// CORS: the Netlify frontend calls this API cross-origin. By default we reflect
+// the request origin (allow all — fine for a prototype). Set CORS_ORIGIN to a
+// comma-separated list of exact origins (e.g. your Netlify URL) to lock it down.
+const corsOrigin = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map((s) => s.trim())
+  : true;
+app.use(cors({ origin: corsOrigin }));
 app.use(express.json());
 app.use('/api', api);
 app.get('/', (_req, res) => res.json({ service: 'AtmosIQ backend', docs: '/api/health' }));
