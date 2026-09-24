@@ -147,7 +147,7 @@ export default function LiveMap() {
     if (hit) { setStationName(hit.name); setOpen(true); setSearchQ(''); mapRef.current?.flyTo(hit.pos, 13, { duration: 0.8 }) }
   }
 
-  const [layers, setLayers] = useState({ heatmap: true, dust: false, wind: false })
+  const [layers, setLayers] = useState({ heatmap: true, dust: false })
   const toggle = (k) => setLayers(l => ({ ...l, [k]: !l[k] }))
 
   return (
@@ -173,35 +173,6 @@ export default function LiveMap() {
           ))}
           {constructionMarkers.map(c => (<Marker key={c.name} position={c.pos} icon={constructionIcon(c)} />))}
         </MapContainer>
-        {/* Wind Vector overlay — bright streamlines visible on light & dark tiles,
-            oriented along the current wind direction (falls back to NW→SE). */}
-        {layers.wind && (
-          <svg className="absolute inset-0 w-full h-full pointer-events-none z-[450]"
-            viewBox="0 0 1000 700" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-            <defs>
-              <marker id="wv-arrow" markerWidth="7" markerHeight="7" refX="4" refY="3" orient="auto">
-                <path d="M0,0 L6,3 L0,6 Z" fill="#22d3ee" />
-              </marker>
-              <filter id="wv-glow" x="-20%" y="-20%" width="140%" height="140%">
-                <feDropShadow dx="0" dy="0" stdDeviation="2.5" floodColor="#0e2b33" floodOpacity="0.9" />
-              </filter>
-            </defs>
-            <g filter="url(#wv-glow)">
-              {Array.from({ length: 13 }).map((_, i) => {
-                const y = 40 + i * 52
-                const drift = (i % 2 === 0 ? -1 : 1) * 34
-                return (
-                  <path key={i} d={`M -60,${y} C 300,${y - drift} 640,${y + drift} 1080,${y - 24}`}
-                    fill="none" stroke="#38e5ff" strokeOpacity="0.85" strokeWidth="2.4"
-                    strokeLinecap="round" strokeDasharray="14 20" markerEnd="url(#wv-arrow)">
-                    <animate attributeName="stroke-dashoffset" from="0" to="-68"
-                      dur={`${1.8 + (i % 4) * 0.35}s`} repeatCount="indefinite" />
-                  </path>
-                )
-              })}
-            </g>
-          </svg>
-        )}
       </div>
 
       {/* Floating top controls (sit to the right of the telemetry drawer) */}
@@ -223,7 +194,7 @@ export default function LiveMap() {
           </div>
         </div>
         <div className="flex items-center gap-space-xs overflow-x-auto py-1 pointer-events-auto">
-          {[['heatmap', 'blur_on', 'PM2.5 Heatmap', ''], ['dust', 'grain', 'PM10 Surface Dust', 'text-tertiary'], ['wind', 'air', 'Wind Vector 3D', 'text-outline']].map(([k, ic, label, iconCls]) => (
+          {[['heatmap', 'blur_on', 'PM2.5 Heatmap', ''], ['dust', 'grain', 'PM10 Surface Dust', 'text-tertiary']].map(([k, ic, label, iconCls]) => (
             <button key={k} onClick={() => toggle(k)} className={`flex items-center gap-1.5 px-space-sm py-space-xs rounded-full font-label-sm text-label-sm whitespace-nowrap transition-colors ${layers[k] ? 'bg-primary text-on-primary shadow-md' : 'bg-surface-container-lowest/90 backdrop-blur-md text-on-surface hover:bg-surface-container-low shadow-sm'}`}>
               <Icon name={ic} className={`text-[1rem] ${layers[k] ? '' : iconCls}`} /><span>{T(label)}</span>
               {layers[k] && <span className="w-2 h-2 rounded-full bg-secondary-container"></span>}

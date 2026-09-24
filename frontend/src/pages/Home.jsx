@@ -199,7 +199,7 @@ export default function Home() {
               </div>
             </div>
             <div className="hidden sm:flex items-center gap-space-2xs bg-surface-container-low p-1 rounded-full">
-              {[['aqi', 'AQI Heat'], ['dust', 'Dust / PM10'], ['wind', 'Wind Vector']].map(([v, label]) => (
+              {[['aqi', 'AQI Heat'], ['dust', 'Dust / PM10']].map(([v, label]) => (
                 <button key={v} onClick={() => setMapView(v)} className={`px-space-xs py-1 rounded-full font-label-sm text-label-sm transition-colors ${mapView === v ? 'bg-surface-container-lowest text-primary font-bold shadow-sm' : 'text-on-surface-variant hover:text-on-surface font-semibold'}`}>{label}</button>
               ))}
             </div>
@@ -222,21 +222,6 @@ export default function Home() {
                 <div className="absolute bottom-[28%] left-[22%] w-44 h-44 rounded-full bg-tertiary/30 blur-3xl"></div>
                 <div className="absolute top-[16%] left-[30%] w-40 h-40 rounded-full bg-tertiary-container/25 blur-3xl"></div>
               </>)}
-              {mapView === 'wind' && (
-                <svg className="absolute inset-0 w-full h-full" viewBox="0 0 400 300" preserveAspectRatio="none">
-                  <defs>
-                    <marker id="homewv" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L5,3 L0,6 Z" fill="#22d3ee" /></marker>
-                    <filter id="homewv-glow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="0" stdDeviation="1.2" floodColor="#0e2b33" floodOpacity="0.9" /></filter>
-                  </defs>
-                  <g filter="url(#homewv-glow)">
-                    {[24, 64, 104, 144, 184, 224, 264].map((y, i) => (
-                      <path key={i} d={`M -20,${y} C 120,${y - 22} 240,${y + 22} 420,${y - 15}`} fill="none" stroke="#38e5ff" strokeOpacity="0.85" strokeWidth="1.8" strokeLinecap="round" strokeDasharray="8 11" markerEnd="url(#homewv)">
-                        <animate attributeName="stroke-dashoffset" from="0" to="-38" dur={`${1.8 + (i % 4) * 0.3}s`} repeatCount="indefinite" />
-                      </path>
-                    ))}
-                  </g>
-                </svg>
-              )}
             </div>
 
             {/* Markers — real AQI overlaid from the live feed where available */}

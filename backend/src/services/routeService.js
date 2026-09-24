@@ -55,7 +55,28 @@ async function aqiAt(lat, lon, fallbackName) {
   return { aqi: cur.aqi, station: cur.name, name: fallbackName || cur.name };
 }
 
-const SENSITIVITY = { high: 0.75, medium: 0.9, moderate: 0.9, low: 1.1 };
+// ---- Personalized AQI reroute threshold (mirrors frontend/src/profileRouting.js) ----
+const BASE_THRESHOLD = { low: 120, medium: 80, moderate: 80, high: 50 };
+const CONDITION_BUFFER = { copd: 25, asthma: 20, cardio: 20, allergies: 8 };
+const AGE_BUFFER = { child: 10, senior: 10 };
+
+// Turn a health profile into { threshold, exertion } used to decide rerouting.
+function profileParams(p = {}) {
+  const sensitivity = p.sensitivityRaw || p.sensitivity || 'medium';
+  const base = BASE_THRESHOLD[sensitivity] ?? 100;
+  const conds = (p.conditionsList || []).filter((c) => c && c !== 'none');
+  const condBuffer = conds.reduce((m, c) => Math.max(m, CONDITION_BUFFER[c] || 0), 0);
+  const ageBuffer = AGE_BUFFER[p.age] || 0;
+  const threshold = Math.max(25, base - condBuffer - ageBuffer);
+
+  const activities = p.activities || [];
+  const active = activities.filter((a) => a !== 'driving');
+  const exertion = activities.includes('running') ? 1.5
+    : (active.includes('walking') || active.includes('cycling')) ? 1.25
+    : (activities.includes('driving') && active.length === 0) ? 0.65
+    : 1.0;
+  return { threshold, exertion, sensitivity, conditions: conds };
+}
 
 export async function routeSuitability({ from, to, healthProfile = {} }) {
   const [gA, gB] = await Promise.all([geocode(from), geocode(to)]);
@@ -65,13 +86,20 @@ export async function routeSuitability({ from, to, healthProfile = {} }) {
   const b = gB ? await aqiAt(gB.lat, gB.lon, to) : { aqi: (await current(LOCATIONS[1].id)).aqi, name: to, station: LOCATIONS[1].name };
 
   const avg = Math.round((a.aqi + b.aqi) / 2);
-  const factor = SENSITIVITY[healthProfile.sensitivity] ?? 0.9;
-  const adjusted = Math.round(avg / factor);
+
+  // Personalized decision: effective exposure (direct route AQI scaled by how
+  // hard the user breathes) vs their computed threshold.
+  const { threshold, exertion, sensitivity, conditions } = profileParams(healthProfile);
+  const directAqi = Math.round(avg * 1.12);          // arterial route runs higher
+  const effectiveAqi = Math.round(directAqi * exertion);
+  const reroute = effectiveAqi > threshold;
+  const over = effectiveAqi - threshold;
 
   let verdict, detail;
-  if (adjusted <= 150) { verdict = 'Recommended'; detail = 'Air quality along this route is acceptable for outdoor travel.'; }
-  else if (adjusted <= 250) { verdict = 'Caution'; detail = 'Moderate exposure — prefer a mask and avoid peak-traffic hours.'; }
-  else { verdict = 'Not Recommended'; detail = 'High exposure. Reschedule to the cleaner mid-afternoon window or travel enclosed.'; }
+  if (!reroute) { verdict = 'Direct route OK'; detail = `Effective exposure AQI ${effectiveAqi} is within your ${threshold} threshold — the direct route is acceptable for you.`; }
+  else if (over <= 60) { verdict = 'Take the cleaner route'; detail = `Effective exposure AQI ${effectiveAqi} exceeds your ${threshold} threshold — use the low-exposure route.`; }
+  else { verdict = 'Avoid / travel enclosed'; detail = `Effective exposure AQI ${effectiveAqi} far exceeds your ${threshold} threshold — reschedule or travel enclosed with cabin filtration.`; }
+  const adjusted = effectiveAqi;
 
   // Real road geometry via OSRM (with an alternative for the "safer" corridor).
   let fastest = null, safer = null;
@@ -95,6 +123,8 @@ export async function routeSuitability({ from, to, healthProfile = {} }) {
     ],
     routeAqi: avg, adjustedAqi: adjusted, category: aqiCategory(avg),
     verdict, detail,
+    // Personalized decision — driven by the caller's health profile.
+    personalization: { threshold, effectiveAqi, exertion, reroute, recommend: reroute ? 'safer' : 'fastest', sensitivity, conditions },
     fastest, safer, geocoded: Boolean(gA && gB),
     optimalWindow: { time: '2:00 - 4:30 PM', note: 'Highest boundary-layer height & steady westerly wind disperse pollutants.' },
   };

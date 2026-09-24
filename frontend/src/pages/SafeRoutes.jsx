@@ -9,6 +9,7 @@ import { t } from '../i18n'
 import HealthProfileModal from '../components/HealthProfileModal'
 import { api } from '../api'
 import { routeBetween } from '../routing'
+import { routingParams, decideRoute } from '../profileRouting'
 
 function catOf(aqi) {
   if (aqi <= 50) return 'Good'; if (aqi <= 100) return 'Satisfactory'; if (aqi <= 200) return 'Moderate'
@@ -36,7 +37,6 @@ export default function SafeRoutes() {
   const [geo, setGeo] = useState(null)         // client-side OSRM road geometry
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const s = suitabilityFor(profile)
 
   // Compute road-following geometry client-side (real streets, no API key) and
   // fetch AQI/verdict from the backend in parallel. Geometry never depends on
@@ -61,14 +61,17 @@ export default function SafeRoutes() {
   // Draw real roads immediately on first load (default From/To).
   useEffect(() => { compare() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Derive the two route AQIs from the real average: direct passes the hotspot
-  // (higher), greenway is buffered (lower). Falls back to the static demo values.
-  const safeAqi = result ? Math.round(result.routeAqi * 0.78) : 214
-  const fastAqi = result ? Math.round(result.routeAqi * 1.12) : 338
-  const verdict = result ? result.verdict : s.short
+  // ---- Personalized routing decision (driven by the saved health profile) ----
+  const params = routingParams(profile)             // threshold + weighting from the profile
+  const routeAqi = result ? result.routeAqi : 275   // live avg AQI along the route (fallback demo)
+  // Direct/arterial route is higher; the greener route's advantage grows with
+  // exertion (walking/running benefit most from avoiding arterials).
+  const fastAqi = Math.round(routeAqi * 1.12)
+  const safeAqi = Math.round(routeAqi * (1 - params.greenBenefit))
+  const decision = decideRoute(params, routeAqi, fastAqi)
+  const recommendSafer = decision.recommend === 'safer'
   // Geometry source: client OSRM first, then backend OSRM, then static demo.
   const routeSrc = geo || (result?.fastest?.coords?.length ? result : null)
-  const hasRealRoute = Boolean(routeSrc)
   const fastCoords = routeSrc?.fastest?.coords || FASTEST_ROUTE
   const safeCoords = routeSrc?.safer?.coords || SAFER_ROUTE
   const startPt = geo?.start || (result?.endpoints?.[0]?.lat != null ? [result.endpoints[0].lat, result.endpoints[0].lon] : safeCoords[0])
@@ -106,14 +109,30 @@ export default function SafeRoutes() {
 
           <div className="bg-surface-container-low rounded-2xl p-space-md flex flex-col gap-space-xs">
             <div className="flex items-center justify-between">
-              <span className="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider font-semibold">{T('Health Suitability')}</span>
+              <span className="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider font-semibold">{T('Personalized Routing')}</span>
               <button onClick={() => setShowModal(true)} className="font-label-sm text-label-sm text-primary font-semibold hover:text-primary-container inline-flex items-center gap-1">{T('Edit profile')} <Icon name="tune" className="text-[0.9rem]" /></button>
             </div>
-            <span className={`inline-flex items-center gap-1.5 px-space-sm py-1 rounded-full font-label-sm text-label-sm font-bold w-fit ${s.cls}`}><span className={`w-2 h-2 rounded-full ${s.dot}`}></span> {T(s.label)}</span>
-            <p className="font-body-sm text-body-sm text-on-surface-variant">{s.reason}</p>
+            {/* Your personal AQI reroute threshold (from sensitivity + conditions + age) */}
+            <div className="flex items-center justify-between bg-surface-container-lowest rounded-xl px-space-sm py-space-xs">
+              <div className="flex flex-col">
+                <span className="font-label-sm text-label-sm text-on-surface-variant">{T('Your reroute threshold')}</span>
+                <span className="font-label-sm text-[0.7rem] text-outline">{params.sensitivityLabel}{params.conditions.length ? ` · ${params.conditions.join(', ')}` : ''}</span>
+              </div>
+              <span className="font-headline-sm text-headline-sm font-extrabold text-primary">AQI {params.threshold}</span>
+            </div>
+            <span className={`inline-flex items-center gap-1.5 px-space-sm py-1 rounded-full font-label-sm text-label-sm font-bold w-fit ${recommendSafer ? (decision.tone === 'error' ? 'bg-error-container text-on-error-container' : 'bg-tertiary-fixed text-on-tertiary-fixed') : 'bg-secondary-container text-on-secondary-fixed-variant'}`}>
+              <span className={`w-2 h-2 rounded-full ${decision.tone === 'error' ? 'bg-error' : decision.tone === 'tertiary' ? 'bg-tertiary' : 'bg-secondary'}`}></span> {decision.verdict}
+            </span>
+            <p className="font-body-sm text-body-sm text-on-surface-variant">{decision.message}</p>
+            {/* Why — the factors that shaped this threshold */}
+            <ul className="flex flex-col gap-0.5 mt-space-2xs">
+              {params.reasons.map((r, i) => (
+                <li key={i} className="flex items-start gap-1.5 font-label-sm text-[0.72rem] text-on-surface-variant"><Icon name="chevron_right" className="text-[0.85rem] text-primary mt-0.5 shrink-0" />{r}</li>
+              ))}
+            </ul>
           </div>
 
-          <div className="flex items-center gap-space-xs bg-secondary-container/30 rounded-xl p-space-sm text-on-secondary-fixed-variant"><Icon name="health_metrics" className="text-secondary text-[1.25rem]" /><span className="font-label-sm text-label-sm font-semibold">Safer route cuts PM2.5 lung intake by <strong>-34%</strong></span></div>
+          <div className="flex items-center gap-space-xs bg-secondary-container/30 rounded-xl p-space-sm text-on-secondary-fixed-variant"><Icon name="health_metrics" className="text-secondary text-[1.25rem]" /><span className="font-label-sm text-label-sm font-semibold">Safer route cuts PM2.5 lung intake by <strong>-{Math.max(0, Math.round((1 - safeAqi / fastAqi) * 100))}%</strong> for your activity level</span></div>
         </div>
 
         {/* Map + routes */}
@@ -145,10 +164,19 @@ export default function SafeRoutes() {
             </div>
           </div>
 
+          {/* Personalized recommendation banner — reflects YOUR threshold */}
+          <div className={`rounded-2xl p-space-md shadow-sm flex items-start gap-space-sm ${recommendSafer ? (decision.tone === 'error' ? 'bg-error-container/40' : 'bg-tertiary-fixed/40') : 'bg-secondary-container/30'}`}>
+            <Icon name={recommendSafer ? 'health_and_safety' : 'check_circle'} className={`text-[1.6rem] shrink-0 ${recommendSafer ? (decision.tone === 'error' ? 'text-error' : 'text-tertiary') : 'text-secondary'}`} fill />
+            <div>
+              <div className="font-title text-title font-bold text-on-surface">{recommendSafer ? T('Recommended for you: take the low-exposure route') : T('Recommended for you: the direct route is acceptable')}</div>
+              <p className="font-body-sm text-body-sm text-on-surface-variant">{decision.message}</p>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-space-lg">
-            {/* Recommended */}
-            <div className="relative bg-secondary-container/20 rounded-2xl p-space-lg shadow-md overflow-hidden flex flex-col justify-between gap-space-md">
-              <div className="absolute top-0 right-0 bg-secondary text-on-secondary px-space-sm py-space-2xs rounded-bl-lg font-label-sm text-label-sm">Best for Lungs</div>
+            {/* Greener / low-exposure route */}
+            <div className={`relative bg-secondary-container/20 rounded-2xl p-space-lg shadow-md overflow-hidden flex flex-col justify-between gap-space-md ${recommendSafer ? 'ring-2 ring-secondary' : ''}`}>
+              <div className={`absolute top-0 right-0 px-space-sm py-space-2xs rounded-bl-lg font-label-sm text-label-sm ${recommendSafer ? 'bg-secondary text-on-secondary' : 'bg-surface-container-high text-on-surface-variant'}`}>{recommendSafer ? T('Recommended for you') : T('Cleaner option')}</div>
               <div>
                 <span className="font-title text-title text-on-surface font-bold">{T('Route B: Canopy Greenway')}</span>
                 <div className="inline-flex items-center gap-1.5 px-space-xs py-space-2xs bg-surface-container-lowest rounded-full text-secondary font-label-sm text-label-sm mt-space-xs mb-space-xs"><span className="w-2 h-2 rounded-full bg-secondary"></span> Avg AQI {safeAqi} · {catOf(safeAqi)}</div>
@@ -157,12 +185,13 @@ export default function SafeRoutes() {
               <div className="space-y-space-xs">
                 <Kv k="Est. Travel Time:" v={saferMeta} />
                 <Kv k="PM2.5 Exposure:" v={`-${Math.max(0, Math.round((1 - safeAqi / fastAqi) * 100))}% vs fastest`} vCls="text-secondary" />
-                <Kv k="Suitability:" v={verdict} vCls={s.textCls} />
+                <Kv k="Effective exposure:" v={`AQI ${Math.round(safeAqi * params.exertion)}`} vCls="text-secondary" />
               </div>
               <button className="w-full py-space-xs rounded-full bg-primary text-on-primary font-label-md text-label-md font-bold shadow-md hover:bg-primary-container transition-all flex items-center justify-center gap-space-xs"><Icon name="navigation" className="text-[1.1rem]" /> {T('Use Safer Route')}</button>
             </div>
-            {/* Fastest */}
-            <div className="bg-surface-container-lowest rounded-2xl p-space-lg shadow-sm flex flex-col justify-between gap-space-md">
+            {/* Direct / arterial route */}
+            <div className={`relative bg-surface-container-lowest rounded-2xl p-space-lg shadow-sm flex flex-col justify-between gap-space-md ${!recommendSafer ? 'ring-2 ring-secondary' : ''}`}>
+              <div className={`absolute top-0 right-0 px-space-sm py-space-2xs rounded-bl-lg font-label-sm text-label-sm ${recommendSafer ? 'bg-error-container text-on-error-container' : 'bg-secondary text-on-secondary'}`}>{recommendSafer ? T('Above your threshold') : T('Acceptable for you')}</div>
               <div>
                 <span className="font-title text-title text-on-surface font-bold">{T('Route A: Direct Arterial')}</span>
                 <div className="inline-flex items-center gap-1.5 px-space-xs py-space-2xs bg-error-container text-on-error-container rounded-full font-label-sm text-label-sm mt-space-xs mb-space-xs"><span className="w-2 h-2 rounded-full bg-error"></span> Avg AQI {fastAqi} · {catOf(fastAqi)}</div>
@@ -170,10 +199,10 @@ export default function SafeRoutes() {
               </div>
               <div className="space-y-space-xs">
                 <Kv k="Est. Travel Time:" v={fastMeta} />
-                <Kv k="PM2.5 Exposure:" v={`+${Math.max(0, fastAqi - safeAqi)} AQI exposure`} vCls="text-error" />
-                <Kv k="Bronchial Strain:" v="High Risk" vCls="text-error" />
+                <Kv k="Effective exposure:" v={`AQI ${decision.effectiveAqi} (yours)`} vCls={recommendSafer ? 'text-error' : 'text-on-surface'} />
+                <Kv k="Vs your threshold:" v={`${decision.effectiveAqi > params.threshold ? '+' : ''}${decision.effectiveAqi - params.threshold}`} vCls={recommendSafer ? 'text-error' : 'text-secondary'} />
               </div>
-              <div className="w-full bg-surface-container-high rounded-full h-2 overflow-hidden"><div className="bg-error h-full rounded-full" style={{ width: '82%' }}></div></div>
+              <div className="w-full bg-surface-container-high rounded-full h-2 overflow-hidden"><div className={`h-full rounded-full ${recommendSafer ? 'bg-error' : 'bg-secondary'}`} style={{ width: `${Math.min(100, Math.round((decision.effectiveAqi / (params.threshold * 1.6)) * 100))}%` }}></div></div>
             </div>
           </div>
         </div>
@@ -198,9 +227,3 @@ function FitRoute({ coords }) {
   return null
 }
 
-function suitabilityFor(profile) {
-  if (!profile) return { label: 'Use Caution', short: 'Use Caution', cls: 'bg-tertiary-fixed text-on-tertiary-fixed', dot: 'bg-tertiary', textCls: 'text-tertiary', reason: 'No health profile yet — set one for a personalised verdict. Current route exposure is Poor.' }
-  const sensitive = profile.conditions !== 'none' || profile.age === 'senior' || profile.age === 'child' || profile.sensitivity === 'high'
-  if (sensitive) return { label: 'Not Recommended', short: 'Not Recommended', cls: 'bg-error-container text-on-error-container', dot: 'bg-error', textCls: 'text-error', reason: `Given your profile (${profile.age}, ${profile.conditions}), today's PM2.5 exposure is too high. Prefer the low-exposure route and mask up.` }
-  return { label: 'Use Caution', short: 'Acceptable w/ mask', cls: 'bg-tertiary-fixed text-on-tertiary-fixed', dot: 'bg-tertiary', textCls: 'text-secondary', reason: 'Route AQI is Poor. Healthy adults can proceed with the low-exposure route; consider a mask during peak segments.' }
-}
